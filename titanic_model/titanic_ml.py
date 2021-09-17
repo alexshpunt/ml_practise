@@ -56,16 +56,18 @@ def grid_search(data):
             xTrain = x.iloc[folds != i,:]
             yTrain = y.iloc[folds != i]
             xTest = x.iloc[folds == i,:]
-
             model = SVC(gamma=gamVec.ravel()[iParam], C=costVec.ravel()[iParam])
             model.fit(xTrain, yTrain)
             yCVPrediction[folds == i] = model.predict(xTest)
         
         AUC.append(roc_auc_score(y, yCVPrediction))
 
+    AUCGrid = np.array(AUC).reshape(gamVec.shape)
+
     indmax = np.argmax(AUC)
     return ("Max", np.max(AUC)), ("Gamma", gamVec.ravel()[indmax]), ("Cost", costVec.ravel()[indmax])
 
 print(build_linear_model(data))
 print(build_SVC_model(data))
-grid_search(data)
+# grid_search(data)
+data.plot(kind="bar")
