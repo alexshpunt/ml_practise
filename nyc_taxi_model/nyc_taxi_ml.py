@@ -1,7 +1,10 @@
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import SGDClassifier
 from sklearn.metrics import roc_curve, roc_auc_score
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.cluster import KMeans
+from sklearn.cluster import MeanShift, estimate_bandwidth
+from sklearn.datasets import make_blobs
 
 from shared.data_utility import *
 
@@ -9,8 +12,11 @@ import pandas as pd
 import numpy as np 
 from os import listdir 
 from os.path import isfile, join
+import matplotlib.pyplot as plt
+from itertools import cycle 
 from matplotlib.pyplot import xlim, ylim
 from scipy import stats
+import haversine as hs 
 
 from pylab import * 
 import random 
@@ -25,7 +31,7 @@ def get_all_files(path):
 trip_data_files = get_all_files(trip_data_path)[:1]
 trip_flare_files = get_all_files(trip_flare_path)[:1]
 
-nrows = 1e6
+nrows = 1e5
 trip_data = None
 for f in trip_data_files:
     print(f)
@@ -102,21 +108,79 @@ data['tipped'] = (data[' tip_amount'] > 0).astype('int')
 # data = data.join(cat_to_num(data['vendor_id']))
 # data = data.join(cat_to_num(data['rate_code']))
 
-data['trip_time_in_secs'][data['trip_time_in_secs'] < 1e-3] = -1
+data['trip_time_in_secs'][data['trip_time_in_secs'] < 1] = -1
 data['speed'] = data['trip_distance'] / data['trip_time_in_secs']
+pickup_positions = zip(data['pickup_latitude'], data['pickup_longitude'])
+dropoff_positions = zip(data['dropoff_latitude'], data['dropoff_longitude'])
+data['pickup_positions'] = list(pickup_positions)
+data['dropoff_positions'] = list(dropoff_positions)
+
+time_squre_pos = (40.75802514864764, -73.98558948905116)
+data['pickup_dist_to_time_square'] = data['pickup_positions'].apply(lambda p: hs.haversine(p, time_squre_pos, unit='m'))
+data['dropoff_dist_to_time_square'] = data['dropoff_positions'].apply(lambda p: hs.haversine(p, time_squre_pos, unit='m'))
+time_squre_pos = np.array(time_squre_pos)
+
+def compute_clusters(prefix):
+    positions_key = f'{prefix}_positions'
+    cluster_key = f'{prefix}_cluster'
+    positions = np.array([[l,v] for l,v in data[positions_key]])
+
+    bandwidth = estimate_bandwidth(positions, quantile=0.01, n_samples=250, n_jobs=-1)
+    ms = MeanShift(bandwidth=bandwidth, bin_seeding=True)
+    ms.fit(positions)
+
+    labels = ms.labels_
+    cluster_centers = ms.cluster_centers_
+    n_clusters = len(np.unique(labels))
+    data[cluster_key] = labels
+
+    return prefix, positions, n_clusters, labels, cluster_centers
+
+def compute_pickup_clusters(): return compute_clusters('pickup')
+def compute_dropoff_clusters(): return compute_clusters('dropoff')
+
+pickup_clusters = compute_pickup_clusters()
+dropoff_clusters = compute_dropoff_clusters()
+
+# data = data.join(cat_to_num(data['pickup_cluster']))
+# data = data.join(cat_to_num(data['dropoff_cluster']))
+
+def draw_clusters(prefix, positions, n_clusters, labels, cluster_centers):
+    plt.figure(2, figsize=(16,8))
+    plt.clf()
+
+    colors = cycle('bgrcmyw')
+    for k, col in zip(range(n_clusters), colors):
+        my_members = labels == k
+        cluster_center = cluster_centers[k]
+        plt.plot(positions[my_members, 0], positions[my_members, 1], col + '.')
+        plt.plot(cluster_center[0], cluster_center[1], 'o', markerfacecolor=col,
+                markeredgecolor='w', markersize=14)
+    plt.title(f'Estimated number of clusters for {prefix} positions: %d' % n_clusters)
+    xlim(40.6, 40.9)
+    ylim(-74.05, -73.9)
+    plt.show()
+
+def draw_pickup_clustes(): draw_clusters(*pickup_clusters)
+def draw_dropoff_clustes(): draw_clusters(*dropoff_clusters)
+draw_pickup_clustes()
+draw_dropoff_clustes()
 
 def extract_datetime(prefix):
     dtdf = pd.to_datetime(data[f'{prefix}_datetime'])
-    data[f'{prefix}_day'] = dtdf.apply(lambda d: d.dayofweek)
+    # data[f'{prefix}_month'] = dtdf.apply(lambda d: d.month)
+    # data[f'{prefix}_day'] = dtdf.apply(lambda d: d.day)
     # data[f'{prefix}_week'] = dtdf.apply(lambda d: d.week)
-    data[f'{prefix}_hour'] = dtdf.apply(lambda d: d.hour)
+    # data[f'{prefix}_hour'] = dtdf.apply(lambda d: d.hour)
 extract_datetime('pickup')
 extract_datetime('dropoff')
 
 feats_to_drop = [
     'store_and_fwd_flag', ' payment_type', 'vendor_id', 
-    'rate_code', 'pickup_datetime', 'dropoff_datetime', 'trip_time_in_secs']
+    'rate_code', 'pickup_datetime', 'dropoff_datetime', 'trip_time_in_secs', 'trip_distance', 
+    'pickup_positions', 'dropoff_positions', ' tolls_amount', ' mta_tax', ' surcharge'] # 'dropoff_cluster', 'pickup_cluster',    
 data = data.drop(feats_to_drop, axis=1)
+data.fillna(0, inplace=True)
 
 M = len(data)
 rand_idx = arange(M)
@@ -151,10 +215,10 @@ def train_predict_measure(model):
     ylabel("True positive rate")
     print(f"{type(model)} auc is {auc}")
 
-# sgd = SGDClassifier(loss='modified_huber')
-# train_predict_measure(sgd)
-
-rf = RandomForestClassifier(n_estimators=100, n_jobs=10)
+#All the tests showed that it's not about the algorithm now, 
+#it's about features we need to extract, it's clearly 
+#heavily related to the pickup/dropoff positions
+rf = GradientBoostingClassifier(verbose=True) #RandomForestClassifier(n_estimators=100, n_jobs=10, verbose=True)
 train_predict_measure(rf)
 
 fi = zip(feats, rf.feature_importances_)
