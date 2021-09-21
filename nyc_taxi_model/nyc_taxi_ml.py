@@ -1,10 +1,8 @@
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_curve, roc_auc_score
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.cluster import KMeans
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.cluster import MeanShift, estimate_bandwidth
-from sklearn.datasets import make_blobs
+from sklearn.model_selection import KFold, cross_val_score
 
 from shared.data_utility import *
 
@@ -31,7 +29,7 @@ def get_all_files(path):
 trip_data_files = get_all_files(trip_data_path)[:1]
 trip_flare_files = get_all_files(trip_flare_path)[:1]
 
-nrows = 1e5
+nrows = 1e6
 trip_data = None
 for f in trip_data_files:
     print(f)
@@ -185,7 +183,7 @@ data.fillna(0, inplace=True)
 M = len(data)
 rand_idx = arange(M)
 random.shuffle(rand_idx)
-train_test_split = int(M*0.2)
+train_test_split = int(M*0.4)
 train_idx = rand_idx[train_test_split:]
 test_idx = rand_idx[:train_test_split]
 
@@ -213,15 +211,33 @@ def train_predict_measure(model):
     plot(fpr, fpr)
     xlabel("False positive rate")
     ylabel("True positive rate")
-    print(f"{type(model)} auc is {auc}")
+    return auc 
 
 #All the tests showed that it's not about the algorithm now, 
 #it's about features we need to extract, it's clearly 
 #heavily related to the pickup/dropoff positions
-rf = GradientBoostingClassifier(verbose=True) #RandomForestClassifier(n_estimators=100, n_jobs=10, verbose=True)
-train_predict_measure(rf)
 
-fi = zip(feats, rf.feature_importances_)
-fi = sorted(fi, key=lambda x: -x[1])
-fi = pd.DataFrame(fi, columns=['feature', 'importance'])
-fi
+rf = GradientBoostingClassifier(verbose=True) #RandomForestClassifier(n_estimators=100, n_jobs=10, verbose=True)
+# X = data.drop(['tipped'], axis=1)
+# y = data['tipped']
+# scores = cross_val_score(rf, train_data, target_train_data, cv=4, n_jobs=-1, verbose=True)
+# scores
+
+K = 2
+preds_kfold = np.empty(K)
+kf = KFold(n_splits=K)
+for i, (train_idx, test_idx) in enumerate(kf.split(data)):
+    train_data = data.iloc[train_idx].loc[:,feats]
+    target_train_data = data.iloc[train_idx]['tipped']
+
+    test_data = data.iloc[test_idx].loc[:,feats]
+    target_test_data = data.iloc[test_idx]['tipped']
+    auc = train_predict_measure(rf)
+    preds_kfold[i] = auc 
+
+# train_predict_measure(rf)
+
+# fi = zip(feats, rf.feature_importances_)
+# fi = sorted(fi, key=lambda x: -x[1])
+# fi = pd.DataFrame(fi, columns=['feature', 'importance'])
+# fi
