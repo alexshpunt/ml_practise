@@ -76,20 +76,6 @@ def make_features_sentences(data, model):
         if w_count > 0: f[i,:] /= w_count
     return f
 
-from matplotlib.pyplot import * 
-def measure_model(model, test_data, target_test_data, color='g'):
-    from sklearn.metrics import roc_curve, roc_auc_score, accuracy_score
-    pred = model.predict_proba(test_data)[:,1]
-    acc = accuracy_score(target_test_data, pred > 0.5)
-    auc = roc_auc_score(target_test_data, pred)
-    fpr, tpr, thr = roc_curve(target_test_data, pred)
-    plot(fpr, tpr, color)
-    xlabel('false positive')
-    ylabel('true positive')
-    return {
-        'acc':acc,
-        'auc':auc,
-    }
 
 from os.path import join
 data_path = 'data/nlp/raw/kaggle/word2vec-nlp-tutorial/'
@@ -145,6 +131,7 @@ else:
     submission_features = v.transform(processed_sumbission_data)
 
 from sklearn.ensemble import RandomForestClassifier
+from utilities import measure_model
 m = RandomForestClassifier(n_estimators=300, verbose=True, n_jobs=-1)
 m.fit(train_features, target_train_data)
 print(measure_model(m, test_features, target_test_data))
